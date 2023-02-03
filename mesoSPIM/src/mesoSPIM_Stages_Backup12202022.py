@@ -2111,7 +2111,7 @@ class mesoSPIM_ASI_MS2000_Stage(mesoSPIM_Stage):
         '''
         ASI-specific code
         '''
-        from .devices.stages.asi.asicontrol import StageControlASITiger
+        from devices.stages.asi.asicontrol import StageControlASITiger
         
         ''' Setting up the ASI stages '''
         self.asi_parameters = self.cfg.asi_parameters
@@ -2178,13 +2178,6 @@ class mesoSPIM_ASI_MS2000_Stage(mesoSPIM_Stage):
             y_rel = dict['y_rel']
             if self.y_min < self.y_pos + y_rel and self.y_max > self.y_pos + y_rel:
                 motion_dict.update({self.mesoSPIM2ASIdict['y'] : round(y_rel, 1)})
-            else:
-                self.sig_status_message.emit('Relative movement stopped: Y Motion limit would be reached!')
-        
-        if 'x_rel' in dict:
-            x_rel = dict['x_rel']
-            if self.x_min < self.x_pos + x_rel and self.x_max > self.x_pos + x_rel:
-                motion_dict.update({self.mesoSPIM2ASIdict['x'] : round(x_rel, 1)})
             else:
                 self.sig_status_message.emit('Relative movement stopped: Y Motion limit would be reached!')
 

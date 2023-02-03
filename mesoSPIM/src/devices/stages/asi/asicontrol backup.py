@@ -130,42 +130,22 @@ class StageControlASITiger(QtCore.QObject):
         '''
         command_string = 'W ' + self.axes + '\r'
         position_string = self._send_command(command_string.encode('ascii'))
-        #print(position_string)
         # Create a list of the form "['7835', '-38704', '0', '0', '-367586']", first element is the ack ':A' and gets discarded
         if position_string is not None:
             try:
-                #print('In Try clause')
                 position_list = position_string.split()[1:]
-                
-                ###############################################
-                ####  REMOVE HACKS ##################
-                #####################################
-                #new_position = []#Hack to force 5 stage position REMOVE
-                #new_position.append(position_list[0])#Hack to force 5 stage position REMOVE
-                #new_position.append(position_list[-1])#Hack to force 5 stage position REMOVE
-                #new_position.append(0)#Hack to force 5 stage position REMOVE
-                #new_position.append(0)#Hack to force 5 stage position REMOVE
-                #new_position.append(0)#Hack to force 5 stage position REMOVE
-                #position_list = new_position#Hack to force 5 stage position REMOVE
-                #position_list = position_list + ['0','0','0'] #Hack to force 5 stage position REMOVE
-                print(position_list)
-                #position_list = position_list + ['0','0']
-                print(position_list)
                 ''' Only process position list if it contains all values'''
                 if len(position_list) == self.num_axes:
                     try:
                         position_list = [int(value) for value in position_list]
                         endcoder_conversion_list = list(self.encoder_conversion.values())
                         position_dict = {self.axes[i]: position_list[i]/endcoder_conversion_list[i] for i in range(self.num_axes)}
-                        #print(position_dict)
                         if position_dict is not None:
                             self.position_dict = position_dict
-                            print(position_dict)
                             return position_dict
                     except:
                         logger.info('Invalid position dict: ' + str(position_list))
                         # return last position dict
-                        print(self.position_dict)
                         return self.position_dict
                 else:
                     logger.error(f"Position list count {position_list} does not match the number of axes {self.num_axes}")

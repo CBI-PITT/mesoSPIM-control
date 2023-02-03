@@ -487,11 +487,15 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
     def move_relative(self, pos_dict):
         assert len(pos_dict) == 1, f"Position dictionary expects only one entry, got {pos_dict}"
         key, value = list(pos_dict.keys())[0], list(pos_dict.values())[0]
+        print('mesoSPIM_MainWindow_line 490')
+        print(pos_dict)
         if key == 'x_rel':
+            print('in x_rel')
             if not (self.cfg.stage_parameters['x_min'] + 1000 <= self.x_position + value <= self.cfg.stage_parameters['x_max'] - 1000):
                 self.X_Position_Indicator.setStyleSheet("color: red;")
                 logger.info(f"X axis position {self.x_position} close to software limits, defined in the config file.")
             else:
+                print('set X position style sheet')
                 self.X_Position_Indicator.setStyleSheet("color: white;")
         elif key == 'y_rel':
             if not (self.cfg.stage_parameters['y_min'] + 1000 <= self.y_position + value <= self.cfg.stage_parameters['y_max'] - 1000):
@@ -511,6 +515,9 @@ class mesoSPIM_MainWindow(QtWidgets.QMainWindow):
                 self.Focus_Position_Indicator.setStyleSheet("color: red;")
             else:
                 self.Focus_Position_Indicator.setStyleSheet("color: white;")
+        print('mesoSPIM_MainWindow_line 518')
+        print('sig_move_relative.emit(pos_dict)')
+        print(pos_dict)
         self.sig_move_relative.emit(pos_dict)
 
     @QtCore.pyqtSlot(int)
