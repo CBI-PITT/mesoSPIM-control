@@ -33,8 +33,11 @@ class StageControlASITiger(QtCore.QObject):
         self.baudrate = asi_parameters['baudrate']
         self.stage_assignment = asi_parameters['stage_assignment']
         self.axis_list = [self.stage_assignment[i] for i in self.stage_assignment.keys()]
+        #print(self.axis_list)
         self.axes = ''.join(self.axis_list) # String containing all axes
+        #print(self.axis)
         self.num_axes = len(self.axes) # The number of axes
+        #print(self.num_axes)
         self.encoder_conversion = asi_parameters['encoder_conversion']
         
         self.position_dict = {axis : None for axis in self.axis_list} # create an empty position dict
@@ -148,10 +151,12 @@ class StageControlASITiger(QtCore.QObject):
                 #new_position.append(0)#Hack to force 5 stage position REMOVE
                 #position_list = new_position#Hack to force 5 stage position REMOVE
                 #position_list = position_list + ['0','0','0'] #Hack to force 5 stage position REMOVE
-                print(position_list)
+                #print(position_list)
                 #position_list = position_list + ['0','0']
-                print(position_list)
+                #print(position_list)
                 ''' Only process position list if it contains all values'''
+                #print(self.num_axes)
+                #print(position_list)
                 if len(position_list) == self.num_axes:
                     try:
                         position_list = [int(value) for value in position_list]
@@ -160,12 +165,12 @@ class StageControlASITiger(QtCore.QObject):
                         #print(position_dict)
                         if position_dict is not None:
                             self.position_dict = position_dict
-                            print(position_dict)
+                            #print(position_dict)
                             return position_dict
                     except:
                         logger.info('Invalid position dict: ' + str(position_list))
                         # return last position dict
-                        print(self.position_dict)
+                        #print(self.position_dict)
                         return self.position_dict
                 else:
                     logger.error(f"Position list count {position_list} does not match the number of axes {self.num_axes}")

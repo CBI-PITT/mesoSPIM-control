@@ -1926,26 +1926,26 @@ class mesoSPIM_ASI_Tiger_Stage(mesoSPIM_Stage):
         slice = dictionary['current_image_in_acq']
         self.asi_stages.current_z_slice = slice
 
-    def report_position(self):
-        position_dict = self.asi_stages.read_position()
-        if position_dict is not None:
-            self.x_pos = position_dict[self.mesoSPIM2ASIdict['x']]
-            self.y_pos = position_dict[self.mesoSPIM2ASIdict['y']]
-            self.z_pos = position_dict[self.mesoSPIM2ASIdict['z']]
-            self.f_pos = position_dict[self.mesoSPIM2ASIdict['f']]
-            self.theta_pos = position_dict[self.mesoSPIM2ASIdict['theta']]/100
-
-            self.create_position_dict()
-
-            self.int_x_pos = self.x_pos + self.int_x_pos_offset
-            self.int_y_pos = self.y_pos + self.int_y_pos_offset
-            self.int_z_pos = self.z_pos + self.int_z_pos_offset
-            self.int_f_pos = self.f_pos + self.int_f_pos_offset
-            self.int_theta_pos = self.theta_pos + self.int_theta_pos_offset
-
-            self.create_internal_position_dict()
-
-            self.sig_position.emit(self.int_position_dict)
+    # def report_position(self):
+    #     position_dict = self.asi_stages.read_position()
+    #     if position_dict is not None:
+    #         self.x_pos = position_dict[self.mesoSPIM2ASIdict['x']]
+    #         self.y_pos = position_dict[self.mesoSPIM2ASIdict['y']]
+    #         self.z_pos = position_dict[self.mesoSPIM2ASIdict['z']]
+    #         self.f_pos = position_dict[self.mesoSPIM2ASIdict['f']]
+    #         self.theta_pos = position_dict[self.mesoSPIM2ASIdict['theta']]/100
+    #
+    #         self.create_position_dict()
+    #
+    #         self.int_x_pos = self.x_pos + self.int_x_pos_offset
+    #         self.int_y_pos = self.y_pos + self.int_y_pos_offset
+    #         self.int_z_pos = self.z_pos + self.int_z_pos_offset
+    #         self.int_f_pos = self.f_pos + self.int_f_pos_offset
+    #         self.int_theta_pos = self.theta_pos + self.int_theta_pos_offset
+    #
+    #         self.create_internal_position_dict()
+    #
+    #         self.sig_position.emit(self.int_position_dict)
 
     def move_relative(self, dict, wait_until_done=False):
         ''' ASI move relative method
@@ -2145,15 +2145,20 @@ class mesoSPIM_ASI_MS2000_Stage(mesoSPIM_Stage):
     def report_position(self):
         position_dict = self.asi_stages.read_position()
         if position_dict is not None:
-            self.y_pos = position_dict[self.mesoSPIM2ASIdict['y']]
-            self.z_pos = position_dict[self.mesoSPIM2ASIdict['z']]
-            self.f_pos = position_dict[self.mesoSPIM2ASIdict['f']]
+            if 'x' in self.mesoSPIM2ASIdict:
+                self.x_pos = position_dict[self.mesoSPIM2ASIdict['x']]
+                self.int_x_pos = self.x_pos + self.int_x_pos_offset
+            if 'y' in self.mesoSPIM2ASIdict:
+                self.y_pos = position_dict[self.mesoSPIM2ASIdict['y']]
+                self.int_y_pos = self.y_pos + self.int_y_pos_offset
+            if 'z' in self.mesoSPIM2ASIdict:
+                self.z_pos = position_dict[self.mesoSPIM2ASIdict['z']]
+                self.int_z_pos = self.z_pos + self.int_z_pos_offset
+            if 'f' in self.mesoSPIM2ASIdict:
+                self.f_pos = position_dict[self.mesoSPIM2ASIdict['f']]
+                self.int_f_pos = self.f_pos + self.int_f_pos_offset
             
             self.create_position_dict()
-
-            self.int_y_pos = self.y_pos + self.int_y_pos_offset
-            self.int_z_pos = self.z_pos + self.int_z_pos_offset
-            self.int_f_pos = self.f_pos + self.int_f_pos_offset
 
             self.create_internal_position_dict()
 
