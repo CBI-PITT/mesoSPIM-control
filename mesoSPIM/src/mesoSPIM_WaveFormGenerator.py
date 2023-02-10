@@ -342,6 +342,15 @@ class mesoSPIM_WaveFormGenerator(QtCore.QObject):
         tmp_etl_cfg_file = etl_cfg_file+'_tmp'
         with open(etl_cfg_file,'r') as input_file, open(tmp_etl_cfg_file,'w') as outputfile:
             reader = csv.DictReader(input_file,delimiter=';')
+            all_wavelengths = []
+            all_zooms = []
+            all_lines = []
+            for row in reader:
+                all_wavelengths.append(row['Wavelength'])
+                all_zooms.append(row['Zoom'])
+                all_lines.append(row)
+            laser_zooms_tuples = [(x,y) for x,y in zip(all_wavelengths,all_zooms)]
+
             #print('created reader')
             fieldnames = ['Objective',
                           'Wavelength',
@@ -350,19 +359,27 @@ class mesoSPIM_WaveFormGenerator(QtCore.QObject):
                           'ETL-Left-Amp',
                           'ETL-Right-Offset',
                           'ETL-Right-Amp']
+            
+            new_line = {'Objective': '1x',
+                         'Wavelength': laser,
+                         'Zoom': zoom,
+                         'ETL-Left-Offset': etl_l_offset,
+                         'ETL-Left-Amp': etl_l_amplitude,
+                         'ETL-Right-Offset': etl_r_offset,
+                         'ETL-Right-Amp': etl_r_amplitude,
+                         }
 
-            writer = csv.DictWriter(outputfile,fieldnames=fieldnames,dialect='excel',delimiter=';')
+            writer = csv.DictWriter(outputfile, fieldnames=fieldnames, dialect='excel', delimiter=';')
             writer.writeheader()
-            for row in reader:
+
+            # Allows novel laser/zoom combos to be added to the top of etl parameters file
+            if (laser,zoom) not in laser_zooms_tuples:
+                writer.writerow(new_line)
+
+            # Changes etl settings for already configured etl parameters + rewrites any unchanged lines
+            for row in all_lines:
                 if row['Wavelength'] == laser and row['Zoom'] == zoom:
-                        writer.writerow({'Objective' : '1x',
-                                         'Wavelength' : laser,
-                                         'Zoom' : zoom,
-                                         'ETL-Left-Offset' : etl_l_offset,
-                                         'ETL-Left-Amp' : etl_l_amplitude,
-                                         'ETL-Right-Offset' : etl_r_offset,
-                                         'ETL-Right-Amp' : etl_r_amplitude,
-                                         })
+                        writer.writerow(new_line)
                 else:
                     writer.writerow(row)
             writer.writerows(reader)
