@@ -97,6 +97,8 @@ class MulticolorTilingAcquisitionListBuilder():
                                             etl_l_amplitude=channeldict['etl_l_amplitude'],
                                             etl_r_offset=channeldict['etl_r_offset'],
                                             etl_r_amplitude=channeldict['etl_r_amplitude'],
+                                            x_image_count=self.dict['x_image_count'],
+                                            y_image_count=self.dict['y_image_count']
                                             )
                         ''' Update number of planes as this is not done by the acquisition 
                         object itself '''

@@ -327,6 +327,10 @@ class mesoSPIM_ImageWriter(QtCore.QObject):
         self.write_line(self.metadata_file, 'x_pixels', self.cfg.camera_parameters['x_pixels'])
         self.write_line(self.metadata_file, 'y_pixels', self.cfg.camera_parameters['y_pixels'])
 
+        self.write_line(self.metadata_file, 'GRID PARAMETERS')
+        self.write_line(self.metadata_file, 'x_image_count', acq['x_image_count'])
+        self.write_line(self.metadata_file, 'y_image_count', acq['y_image_count'])
+
         if acq['filename'][-3:] == '.h5':
             if acq == acq_list[-1]:
                 self.metadata_file.close()

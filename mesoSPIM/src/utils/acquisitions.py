@@ -61,7 +61,10 @@ class Acquisition(indexed.IndexedOrderedDict):
                  etl_l_amplitude=0,
                  etl_r_offset=0,
                  etl_r_amplitude=0,
-                 processing=''):
+                 processing='',
+                 x_image_count=1,
+                 y_image_count=1
+                 ):
 
         super().__init__()
 
@@ -86,6 +89,8 @@ class Acquisition(indexed.IndexedOrderedDict):
         self['etl_r_offset']=etl_r_offset
         self['etl_r_amplitude']=etl_r_amplitude
         self['processing']=processing
+        self['x_image_count']=x_image_count
+        self['y_image_count']=y_image_count
 
 
     def __setitem__(self, key, value):
