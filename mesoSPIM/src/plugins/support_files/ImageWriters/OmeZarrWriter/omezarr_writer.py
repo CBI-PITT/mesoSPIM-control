@@ -153,6 +153,7 @@ def _ensure_v2_compressor(compressor):
     shuffle_default = 2
 
     from numcodecs import Blosc as BloscV2
+    numcodecs.blosc.set_nthreads(blosc_threads)
     if BloscV2 is not None and isinstance(compressor, BloscCodec):
         cname_attr = getattr(compressor, "cname", compressor_default)
         # handle enum -> string
@@ -171,7 +172,7 @@ def _ensure_v2_compressor(compressor):
             "bitshuffle": 2,
         }
         shuffle_int = shuffle_map.get(shuffle_str, 1 if shuffle_str not in (0, 1, 2) else shuffle_str)
-        return BloscV2(cname=cname, clevel=clevel, shuffle=shuffle_int, nthreads=blosc_threads)
+        return BloscV2(cname=cname, clevel=clevel, shuffle=shuffle_int)
 
 
 def _coerce_shards(chunks: Tuple[int,int,int],
