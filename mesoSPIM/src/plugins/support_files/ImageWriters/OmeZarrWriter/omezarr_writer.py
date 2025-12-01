@@ -152,6 +152,7 @@ def _ensure_v2_compressor(compressor):
     clevel_default = 5
     shuffle_default = 2
 
+    import numcodecs
     from numcodecs import Blosc as BloscV2
     numcodecs.blosc.set_nthreads(blosc_threads)
     if BloscV2 is not None and isinstance(compressor, BloscCodec):
