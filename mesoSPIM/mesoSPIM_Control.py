@@ -14,6 +14,7 @@ import argparse
 import glob
 import os
 import sys
+import multiprocessing as mp
 import importlib.util
 from PyQt5 import QtWidgets, QtCore
 import qdarkstyle
@@ -180,4 +181,5 @@ def run():
 
 
 if __name__ == '__main__':
+    mp.set_start_method("spawn", force=True)
     run()

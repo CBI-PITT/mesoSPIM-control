@@ -867,3 +867,51 @@ class XmlWriter:
         else:
             if level and (not elem.tail or not elem.tail.strip()):
                 elem.tail = i
+
+import multiprocessing as mp
+from multiprocessing import shared_memory
+
+def omezarr_writer_worker(
+    shm_name: str,
+    frame_shape: tuple[int, int],
+    ring_size: int,
+    writer_kwargs: dict,
+    work_q: mp.Queue,
+    free_q: mp.Queue,
+):
+    """
+    Child process:
+    - Attaches to shared memory
+    - Creates Live3DPyramidWriter
+    - Loops reading slot indices from work_q
+    - For each slot, takes the frame from shared memory and pushes it
+    - Returns slot to free_q when done
+    """
+
+    import numpy as np
+
+    # Attach to shared memory
+    shm = shared_memory.SharedMemory(name=shm_name)
+    Y, X = frame_shape
+    ring = np.ndarray((ring_size, Y, X), dtype=np.uint16, buffer=shm.buf)
+
+    writer = Live3DPyramidWriter(**writer_kwargs)
+
+    try:
+        while True:
+            slot = work_q.get()
+            if slot is None:
+                break
+
+            frame = ring[slot]          # view into shared memory
+            writer.push_slice(frame)
+
+            # Slot now reusable
+            free_q.put(slot)
+    finally:
+        try:
+            writer.close()
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("Error closing Live3DPyramidWriter in worker")
+        shm.close()

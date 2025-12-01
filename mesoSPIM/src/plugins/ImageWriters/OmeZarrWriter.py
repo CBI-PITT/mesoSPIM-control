@@ -1,6 +1,7 @@
-import os
+import multiprocessing as mp
+from multiprocessing import shared_memory
+import numpy as np
 from pathlib import Path
-import time
 import logging
 logger = logging.getLogger(__name__)
 import numpy as np
@@ -19,8 +20,53 @@ from mesoSPIM.src.plugins.support_files.ImageWriters.OmeZarrWriter.omezarr_write
     Live3DPyramidWriter, plan_levels,
     compute_xy_only_levels, FlushPad,
     BloscCodec, BloscShuffle,
-    XmlWriter
+    XmlWriter,
+    omezarr_writer_worker,
 )
+
+def _omezarr_writer_worker(
+    shm_name: str,
+    frame_shape: tuple[int, int],
+    ring_size: int,
+    writer_kwargs: dict,
+    work_q: mp.Queue,
+    free_q: mp.Queue,
+):
+    """
+    Child process:
+    - Attaches to shared memory
+    - Creates Live3DPyramidWriter
+    - Loops reading slot indices from work_q
+    - For each slot, takes the frame from shared memory and pushes it
+    - Returns slot to free_q when done
+    """
+    from multiprocessing import shared_memory
+    import numpy as np
+    from mesoSPIM.src.plugins.support_files.ImageWriters.OmeZarrWriter.omezarr_writer import (
+        Live3DPyramidWriter,
+    )
+
+    Y, X = frame_shape
+
+    shm = shared_memory.SharedMemory(name=shm_name)
+    ring = np.ndarray((ring_size, Y, X), dtype=np.uint16, buffer=shm.buf)
+
+    writer = Live3DPyramidWriter(**writer_kwargs)
+
+    try:
+        while True:
+            slot = work_q.get()
+            if slot is None:
+                break
+
+            frame = ring[slot]          # view into shared memory
+            writer.push_slice(frame)    # Live3DPyramidWriter handles z-indexing
+
+            # Slot can be reused as soon as we've enqueued slice to writer
+            free_q.put(slot)
+    finally:
+        writer.close()
+        shm.close()
 
 
 class OMEZarrWriter(ImageWriter):
@@ -81,6 +127,20 @@ class OMEZarrWriter(ImageWriter):
 
         '''
 
+    def __init__(self):
+        super().__init__()
+        self.omezarr_writer = None  # not used in process mode, but keep for API compatibility
+        self._shm = None
+        self._ring = None
+        self._ring_size = None
+        self._frame_shape = None
+        self._work_q = None
+        self._free_q = None
+        self._writer_proc = None
+        self.xml_writer = None
+        self.req = None
+        # self._background_writers: list[tuple[mp.Process, str]] = []
+
     writer = None
     write_request = None
 
@@ -125,25 +185,50 @@ class OMEZarrWriter(ImageWriter):
             IncludeAllChannelsInSingleFileFormat = True,  # Will put all channels in name if SingleFileFormat==True
         )
 
+    from multiprocessing import shared_memory, Process, Queue
+    import numpy as np
+    import os
+
+    # Example frame shape
+    Y, X = 2048, 2048
+    RING_SIZE = 16  # number of frames that can be queued at once
+
+    def _create_shared_ringbuffer(self, ring_buffer_size: int, Y: int, X: int) -> None:
+        """
+        Create a shared memory ring buffer to hold image frames.
+        Stores SharedMemory object and numpy view on self.
+        """
+        nbytes = ring_buffer_size * Y * X * np.dtype('uint16').itemsize
+        shm = shared_memory.SharedMemory(create=True, size=nbytes)
+        buf = np.ndarray((ring_buffer_size, X, Y), dtype=np.uint16, buffer=shm.buf)
+
+        self._shm = shm
+        self._ring = buf
+        self._ring_size = ring_buffer_size
+        self._frame_shape = (X, Y)
+
     def open(self, req: WriteRequest) -> None:
         assert self.compatible_suffix(req), f'URI suffix not compatible with {self.name()}'
 
         #######################
         ####  GET Defaults  ###
         #######################
-        ome_version = '0.5',  # 0.4 (zarr v2), 0.5 (zarr v3, sharding supported)
-        generate_multiscales = True,  # True, False. False: only the primary data is saved. True: multiscale data is generated
-        compression = 'zstd',  # None, 'zstd', 'lz4'
-        compression_level = 5,  # 1-9
-        shards = (64, 6000, 6000),  # None or Tuple specifying max shard size. (axes: z,y,x), ignored if ome_version "0.4"
-        base_chunks = (64, 256, 256),  # Tuple specifying starting chunk size (multiscale level 0). Bigger chunks, less files (axes: z,y,x)
-        target_chunks = (64, 64, 64),  # Tuple specifying ending chunk size (multiscale highest level). Bigger chunks, less files (axes: z,y,x)
-        async_finalize = True,  # True, False
+        ome_version = '0.5'             # 0.4 (zarr v2), 0.5 (zarr v3, sharding supported)
+        generate_multiscales = True     # True, False. False: only the primary data is saved. True: multiscale data is generated
+        compression = 'zstd'            # None, 'zstd', 'lz4'
+        compression_level = 5  # 1-9
+        shards = (64, 6000, 6000)       # None or Tuple specifying max shard size. (axes: z,y,x), ignored if ome_version "0.4"
+        base_chunks = (64, 256, 256)    # Tuple specifying starting chunk size (multiscale level 0). Bigger chunks, less files (axes: z,y,x)
+        target_chunks = (64, 64, 64)    # Tuple specifying ending chunk size (multiscale highest level). Bigger chunks, less files (axes: z,y,x)
+        async_finalize = True           # True, False
 
         # BigStitcher XML Options Defaults - for easy drag/drop import into BigStitcher
-        write_big_stitcher_xml = True,  # True, False
-        flip_xyz = (False, False, False),  # match BigStitcher coordinates to mesoSPIM axes.
-        transpose_xy = False,  # in case X and Y axes need to be swapped for the correct BigStitcher tile positions
+        write_big_stitcher_xml = True   # True, False
+        flip_xyz = (False, False, False)# match BigStitcher coordinates to mesoSPIM axes.
+        transpose_xy = False            # in case X and Y axes need to be swapped for the correct BigStitcher tile positions
+
+        # Multiprocess options
+        ring_buffer_size = 512          # number of frames that can be queued at once
 
         #####################################
         ####  Load from Config if defined ###
@@ -165,6 +250,8 @@ class OMEZarrWriter(ImageWriter):
             flip_xyz = req.writer_config_file_values.get('flip_xyz', flip_xyz)
             transpose_xy = req.writer_config_file_values.get('transpose_xy', transpose_xy)
 
+        # Save req so metadata_file_info can see it
+        self.req = req
         acq = req.acq
         acq_list = req.acq_list
 
@@ -179,6 +266,7 @@ class OMEZarrWriter(ImageWriter):
 
         # create writer object if the view is first in the list
         if acq == acq_list[0]:
+
             zarr_version = 2 if ome_version == "0.4" else 3
             zarr.open_group(req.uri, mode="a", zarr_version=zarr_version)
 
@@ -249,43 +337,122 @@ class OMEZarrWriter(ImageWriter):
         if compression:
             compressor = BloscCodec(cname=compression, clevel=compression_level, shuffle=BloscShuffle.bitshuffle)
 
-        self.omezarr_writer = Live3DPyramidWriter(
-            spec,
+        # Setup multiprocessing ring buffer
+        # self.shared_memory
+        # self.rig_buffer
+        self._create_shared_ringbuffer(ring_buffer_size, req.shape[1], req.shape[2])
+        # shm_name = self._shm.name
+
+        # --- Create queues ---
+        ctx = mp.get_context("spawn")
+        self._work_q = ctx.Queue(maxsize=ring_buffer_size)
+        self._free_q = ctx.Queue(maxsize=ring_buffer_size)
+
+        # Initialize free-slot queue with all indices
+        for i in range(ring_buffer_size):
+            self._free_q.put(i)
+
+        # --- Spawn writer process, which owns Live3DPyramidWriter ---
+        writer_kwargs = dict(
+            spec=spec,
             voxel_size=px_size_zyx,
             path=self.current_acquire_file_path,
             ingest_queue_size=256,
-            max_workers=2,              # Set 1 for single thread operation for debug
-            max_inflight_chunks=8,      # Set 1 for single thread operation for debug
+            max_workers=2,  # or 1 if you want the child single-threaded
+            max_inflight_chunks=8,
             chunk_scheme=scheme,
             compressor=compressor,
             shard_shape=shard_shape,
-            flush_pad=FlushPad.DUPLICATE_LAST,  # keeps alignment, no RMW
-            async_close=async_finalize,
+            flush_pad=FlushPad.DUPLICATE_LAST,
+            async_close=False, # Force sync close to ensure all data is written before proceeding
             translation=(acq['z_start'], acq['y_pos'], acq['x_pos']),
-            ome_version=ome_version
+            ome_version=ome_version,
         )
+
+        self._writer_proc = ctx.Process(
+            target=omezarr_writer_worker,  # From omezarr_writer.py
+            args=(
+                self._shm.name,
+                (Y, X),
+                ring_buffer_size,
+                writer_kwargs,
+                self._work_q,
+                self._free_q,
+            ),
+            daemon=True,
+        )
+
+        self._writer_proc.start()
+
+        # # remember this writer as “in the background”
+        # self._background_writers.append((self._writer_proc, shm_name))
+
+        # You no longer instantiate Live3DPyramidWriter here in the parent.
+        self.omezarr_writer = None  # keep attribute for compatibility
 
         self.metadata_file_info()
 
-
-
     def write_frame(self, data: WriteImage):
-        self.omezarr_writer.push_slice(data.image)
+        frame = data.image
 
-    def finalize(self, finalize_image=FinalizeImage) -> None:
-        self.omezarr_writer.close()
+        # Basic sanity checks
+        assert frame.dtype == np.uint16
+        assert frame.shape == self._frame_shape, (
+            f"Expected frame shape {self._frame_shape}, got {frame.shape}"
+        )
 
+        # Get a free slot (blocks if all slots are in use -> back-pressure)
+        slot = self._free_q.get()
+
+        # Copy the frame into shared memory
+        np.copyto(self._ring[slot], frame)
+
+        # Tell writer process which slot to read
+        self._work_q.put(slot)
+
+    def finalize(self, finalize_image: FinalizeImage) -> None:
+        # Tell worker to exit
+        if self._work_q is not None:
+            self._work_q.put(None)
+
+        if self._writer_proc is not None:
+            self._writer_proc.join()
+            self._writer_proc = None
+
+        # Cleanup shared memory
+        if self._shm is not None:
+            self._shm.close()
+            self._shm.unlink()
+            self._shm = None
+            self._ring = None
+
+        # BigStitcher XML as before
         if self.xml_writer:
             acq = finalize_image.acq
             acq_list = finalize_image.acq_list
-            if acq == acq_list[-1]: # On last tile, write BigStitcher XML
+            if acq == acq_list[-1]:
                 self.xml_writer.set_attribute_labels('channel', tuple(acq_list.get_unique_attr_list('laser')))
-                self.xml_writer.set_attribute_labels('illumination', tuple(acq_list.get_unique_attr_list('shutterconfig')))
+                self.xml_writer.set_attribute_labels('illumination', tuple(acq_list.get_unique_attr_list('shutterconfig'))                )
                 self.xml_writer.set_attribute_labels('angle', tuple(acq_list.get_unique_attr_list('rot')))
                 self.xml_writer.write()
 
     def abort(self) -> None:
-        self.omezarr_writer.close()
+        try:
+            if self._work_q is not None:
+                self._work_q.put(None)
+            if self._writer_proc is not None:
+                self._writer_proc.join(timeout=5.0)
+        except Exception:
+            pass
+        finally:
+            if self._shm is not None:
+                self._shm.close()
+                try:
+                    self._shm.unlink()
+                except FileNotFoundError:
+                    pass
+                self._shm = None
+                self._ring = None
 
     def metadata_file_info(self) -> str:
         """
