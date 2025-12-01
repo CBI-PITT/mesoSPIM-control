@@ -16,9 +16,10 @@ from xml.etree import ElementTree as ET
 VERBOSE = True
 
 # at top-level (after imports)
+blosc_threads = max(1, os.cpu_count() // 2)
 try:
     import blosc2            # zarr v3 uses python-blosc2
-    blosc2.set_nthreads(max(1, os.cpu_count() // 2))  # e.g., half your cores
+    blosc2.set_nthreads(blosc_threads)  # e.g., half your cores
 except Exception:
     pass
 
@@ -170,7 +171,7 @@ def _ensure_v2_compressor(compressor):
             "bitshuffle": 2,
         }
         shuffle_int = shuffle_map.get(shuffle_str, 1 if shuffle_str not in (0, 1, 2) else shuffle_str)
-        return BloscV2(cname=cname, clevel=clevel, shuffle=shuffle_int)
+        return BloscV2(cname=cname, clevel=clevel, shuffle=shuffle_int, nthreads=blosc_threads)
 
 
 def _coerce_shards(chunks: Tuple[int,int,int],
@@ -525,11 +526,15 @@ class Live3DPyramidWriter:
         return z
 
     def _submit_write_chunk(self, level: int, z0: int, buf3d: np.ndarray):
-        # bound in-flight tasks; acquire before submitting
-        self._inflight_sem.acquire()
-        fut = self.pool.submit(self._write_chunk_slice, self.arrs[level], z0, buf3d)
-        # Release the slot when done (and drop ref to the future immediately)
-        fut.add_done_callback(lambda _f: self._inflight_sem.release())
+        # acquire *before* grabbing the lock (it’s called from inside-lock code now)
+
+        if self.max_inflight_chunks == 1 and self.max_inflight_chunks == 1: # Helps with single threaded debugging
+            self.arrs[level][z0:z0 + buf3d.shape[0], :, :] = buf3d
+        else:
+            self._inflight_sem.acquire()
+            fut = self.pool.submit(self._write_chunk_slice, self.arrs[level], z0, buf3d)
+            # Release the slot when done (and drop ref to the future immediately)
+            fut.add_done_callback(lambda _f: self._inflight_sem.release())
 
     @staticmethod
     def _write_chunk_slice(arr, z0, buf3d):
@@ -561,10 +566,10 @@ class Live3DPyramidWriter:
             buf = self.buffers[level]
             z0 = self.buf_start[level]
             # hand a copy to the pool to avoid mutation races
-            self._submit_write_chunk(level, z0, buf)
             self.buffers[level] = None
             self.buf_fill[level] = 0
             self.buf_start[level] = z0 + zc
+            self._submit_write_chunk(level, z0, buf)
 
     def _pad_and_flush_partial_chunk(self, level: int):
         """Pad the active buffer to full chunk size (duplicate last or zeros) and flush."""

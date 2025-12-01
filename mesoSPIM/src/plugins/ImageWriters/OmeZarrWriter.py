@@ -253,7 +253,9 @@ class OMEZarrWriter(ImageWriter):
             spec,
             voxel_size=px_size_zyx,
             path=self.current_acquire_file_path,
-            max_workers=os.cpu_count() // 2,
+            ingest_queue_size=256,
+            max_workers=2,              # Set 1 for single thread operation for debug
+            max_inflight_chunks=8,      # Set 1 for single thread operation for debug
             chunk_scheme=scheme,
             compressor=compressor,
             shard_shape=shard_shape,
