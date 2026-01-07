@@ -258,14 +258,7 @@ def init_ome_zarr(spec: PyramidSpec, path=STORE_PATH,
 
     # Map OME-NGFF version to Zarr store version
     zarr_version = 2 if ome_version == "0.4" else 3
-
-    # Create Zarr store (group) with locking to avoid races
-    lock_path = str(Path(path).with_suffix(".init.lock")) #lock for initialization with multiple writers
-    lockfile(lock_path, timeout=30) # blocking if lockfile already exists, throws error on timeout
-    try:
-        root = zarr.open_group(path, mode="a", zarr_version=zarr_version)
-    finally:
-        unlockfile(lock_path)
+    root = zarr.open_group(path, mode="a", zarr_version=zarr_version)
 
     arrs = []
     for l in range(spec.levels):
@@ -399,13 +392,18 @@ class Live3DPyramidWriter:
         self.async_close = async_close
         self.finalize_future = None
 
-        self.root, self.arrs = init_ome_zarr(
-            spec, path,
-            chunk_scheme=chunk_scheme, compressor=compressor,
-            voxel_size=voxel_size, xy_levels=self.xy_levels,
-            shard_shape=shard_shape, translation=translation,
-            ome_version=ome_version,
-        )
+        lock_path = str(Path(path).with_suffix(".init.lock"))
+        lockfile(lock_path, timeout=30) # wait up to 30s for lock, then fail
+        try:
+            self.root, self.arrs = init_ome_zarr(
+                spec, path,
+                chunk_scheme=chunk_scheme, compressor=compressor,
+                voxel_size=voxel_size, xy_levels=self.xy_levels,
+                shard_shape=shard_shape, translation=translation,
+                ome_version=ome_version,
+            )
+        finally:
+            unlockfile(lock_path) # release lock
 
         self.levels = spec.levels
         self.z_counts = [0] * self.levels
