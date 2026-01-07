@@ -1,4 +1,6 @@
-import os, concurrent.futures
+import os
+import time
+import concurrent.futures
 from pathlib import Path
 import math
 import tifffile
@@ -226,6 +228,24 @@ def pick_shards_for_level(
         out.append(s)
     return tuple(out)
 
+def lockfile(path, timeout=30):
+    # super simple lockfile: create exclusively
+    start = time.time()
+    while True:
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(fd)
+            return
+        except FileExistsError:
+            if time.time() - start > timeout:
+                raise TimeoutError(f"Timed out waiting for lock {path}")
+            time.sleep(0.05)
+
+def unlockfile(path):
+    try: os.remove(path)
+    except FileNotFoundError: pass
+
+
 # ---------- Zarr v3 init (multiscales 0.5) ----------
 def init_ome_zarr(spec: PyramidSpec, path=STORE_PATH,
                   chunk_scheme: ChunkScheme = ChunkScheme(),
@@ -238,7 +258,15 @@ def init_ome_zarr(spec: PyramidSpec, path=STORE_PATH,
 
     # Map OME-NGFF version to Zarr store version
     zarr_version = 2 if ome_version == "0.4" else 3
-    root = zarr.open_group(path, mode="a", zarr_version=zarr_version)
+
+    # Create Zarr store (group) with locking to avoid races
+    lock_path = str(Path(path).with_suffix(".init.lock")) #lock for initialization with multiple writers
+    lockfile(lock_path, timeout=30) # blocking if lockfile already exists, throws error on timeout
+    try:
+        root = zarr.open_group(path, mode="a", zarr_version=zarr_version)
+    finally:
+        unlockfile(lock_path)
+
     arrs = []
     for l in range(spec.levels):
         zf, yf, xf = level_factors(l, xy_levels)
