@@ -1,8 +1,11 @@
-import os, concurrent.futures
+import os
+import concurrent.futures
 from pathlib import Path
 import math
-import tifffile
 import threading, queue
+import multiprocessing as mp
+from multiprocessing import shared_memory
+import psutil
 import numpy as np
 import zarr
 from zarr.codecs import BloscCodec, BloscShuffle, ShardingCodec
@@ -874,8 +877,19 @@ class XmlWriter:
             if level and (not elem.tail or not elem.tail.strip()):
                 elem.tail = i
 
-import multiprocessing as mp
-from multiprocessing import shared_memory
+def lower_priority():
+    '''Lowers the CPU scheduling priority of the current process.'''
+
+    p = psutil.Process(os.getpid())
+
+    if os.name == "nt":
+        # Windows: pick a lower priority class
+        p.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
+        # or: psutil.IDLE_PRIORITY_CLASS  (even lower)
+    else:
+        # Linux/Unix: higher nice => lower priority (0 is default)
+        p.nice(10)  # 10-19 are common "background" values
+
 
 def omezarr_writer_worker(
     shm_name: str,
@@ -895,6 +909,8 @@ def omezarr_writer_worker(
     """
 
     import numpy as np
+
+    lower_priority() # Lower the CPU scheduling priority on this worker to give preference to acquisition
 
     # Attach to shared memory
     shm = shared_memory.SharedMemory(name=shm_name)
