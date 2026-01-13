@@ -203,6 +203,11 @@ class OMEZarrWriterMP(ImageWriter):
         # Multiprocess options
         ring_buffer_size = 512          # number of frames that can be queued at once
 
+        # Writer performance options
+        max_workers = 2
+        max_inflight_chunks = 256
+        ingest_queue_size = 8
+
         # Cache
         write_cache = None
 
@@ -224,6 +229,12 @@ class OMEZarrWriterMP(ImageWriter):
             flip_xyz = req.writer_config_file_values.get('flip_xyz', flip_xyz)
             transpose_xy = req.writer_config_file_values.get('transpose_xy', transpose_xy)
             ring_buffer_size = req.writer_config_file_values.get('ring_buffer_size', ring_buffer_size)
+            if 'max_workers' in req.writer_config_file_values:
+                max_workers = req.writer_config_file_values.get('max_workers')
+            if 'max_inflight_chunks' in req.writer_config_file_values:
+                max_inflight_chunks = req.writer_config_file_values.get('max_inflight_chunks')
+            if 'ingest_queue_size' in req.writer_config_file_values:
+                ingest_queue_size = req.writer_config_file_values.get('ingest_queue_size')
             if 'write_cache' in req.writer_config_file_values:
                 # Deals with case where write_cache is None in config
                 write_cache = req.writer_config_file_values.get('write_cache')
@@ -346,9 +357,9 @@ class OMEZarrWriterMP(ImageWriter):
             spec=spec,
             voxel_size=px_size_zyx,
             path=self.current_acquire_file_path,
-            ingest_queue_size=256,
-            max_workers=2,  # or 1 if you want the child single-threaded
-            max_inflight_chunks=8,
+            ingest_queue_size=ingest_queue_size,
+            max_workers=max_workers,  # or 1 if you want the child single-threaded
+            max_inflight_chunks=max_inflight_chunks,
             chunk_scheme=scheme,
             compressor=compressor,
             shard_shape=shard_shape,

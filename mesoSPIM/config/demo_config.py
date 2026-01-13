@@ -420,7 +420,12 @@ MP_OME_Zarr_Writer = {
 
     # Multiprocess options
     'ring_buffer_size': 16,  # Max number of images in shared memory ring buffer
-         
+
+    # Writer Performance Options
+    'max_workers': 2,          # Number of worker processes for writing, if None: lets writer choose min(8, os.cpu_count() or 4)
+    'max_inflight_chunks': 8,  # Max number of chunks being written simultaneously, None lets writer choose (max_workers * 40)
+    'ingest_queue_size': 256,  # Size of the queue for ingesting images, None lets writer choose (max_workers * 4)
+
     # Write cache options. Write tile data to cache then move to acquisition folder
     # None acquires data direct to acquisition folder.
     'write_cache': None # None, 'e:/path/to/fast/ssd/write/cache'

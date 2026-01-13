@@ -358,7 +358,7 @@ class Live3DPyramidWriter:
     def __init__(self, spec: PyramidSpec, voxel_size=(1.0, 1.0, 1.0), path=STORE_PATH, max_workers=None,
                  chunk_scheme: ChunkScheme = ChunkScheme(), compressor=None,
                  flush_pad: FlushPad = FlushPad.DUPLICATE_LAST,
-                 ingest_queue_size: int = 8,
+                 ingest_queue_size: int | None = 8,
                  max_inflight_chunks: int | None = None,
                  async_close: bool = True,
                  shard_shape: Tuple[int, int, int] | None = None,
@@ -372,6 +372,9 @@ class Live3DPyramidWriter:
         self.max_workers = max_workers or min(8, os.cpu_count() or 4)
         self.async_close = async_close
         self.finalize_future = None
+
+        if ingest_queue_size is None:
+            ingest_queue_size = self.max_workers * 4
 
         self.root, self.arrs = init_ome_zarr(
             spec, path,
