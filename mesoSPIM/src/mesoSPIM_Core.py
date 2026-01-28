@@ -564,6 +564,79 @@ class mesoSPIM_Core(QtCore.QObject):
         if laser_blanking:
             self.laserenabler.disable_all()
 
+    def snap_image_hdr_series(self, acq, laser_blanking=True):
+        """Capture multiple exposures at different intensities for HDR imaging
+
+        Args:
+            acq: Acquisition object containing HDR configuration
+            laser_blanking: Whether to enable/disable laser between exposures
+
+        Returns:
+            List of raw exposure images for HDR processing
+        """
+        if not acq.get("hdr_enabled", False):
+            # Fallback to standard capture for non-HDR acquisitions
+            self.snap_image_in_series(laser_blanking)
+            return []
+
+        logger.debug(f"Starting HDR capture with {acq['hdr_exposures']} exposures")
+        images = []
+        original_intensity = self.state["intensity"]
+        laser = self.state["laser"]
+
+        try:
+            for i, intensity_ratio in enumerate(acq["hdr_intensity_ratios"]):
+                # Calculate intensity for this exposure
+                hdr_intensity = int(min(100, original_intensity * intensity_ratio))
+
+                # Set intensity for this exposure
+                logger.debug(f"HDR exposure {i + 1}/{acq['hdr_exposures']}: intensity {hdr_intensity}%")
+                self.set_intensity(hdr_intensity, wait_until_done=True)
+
+                # Small delay for intensity stabilization
+                time.sleep(0.01)
+
+                # Handle laser enabling for HDR sequence
+                if laser_blanking:
+                    if i == 0:
+                        self.laserenabler.enable(laser)
+                    elif i < len(acq["hdr_intensity_ratios"]) - 1:
+                        # Brief disable between exposures
+                        self.laserenabler.disable_all()
+                        time.sleep(0.005)
+                        self.laserenabler.enable(laser)
+
+                # Capture single exposure
+                self.waveformer.start_tasks()
+                self.waveformer.run_tasks()
+                self.waveformer.stop_tasks()
+
+                # Get images from camera
+                exposure_images = self.camera_worker.camera.get_images_in_series()
+                images.extend(exposure_images)
+
+                # Brief pause between exposures
+                if i < len(acq["hdr_intensity_ratios"]) - 1:
+                    time.sleep(0.01)
+
+            # Cleanup
+            if laser_blanking:
+                self.laserenabler.disable_all()
+
+            # Restore original intensity
+            self.set_intensity(original_intensity, wait_until_done=True)
+
+            logger.debug(f"HDR capture completed: {len(images)} raw images collected")
+            return images
+
+        except Exception as e:
+            logger.error(f"HDR capture failed: {e}")
+            # Restore original settings on error
+            self.set_intensity(original_intensity, wait_until_done=True)
+            if laser_blanking:
+                self.laserenabler.disable_all()
+            raise
+
     def close_image_series(self):
         '''Cleans up after series without waveform update'''
         log_cpu_core(logger, msg='close_image_series()')
@@ -844,8 +917,33 @@ class mesoSPIM_Core(QtCore.QObject):
                 self.sig_end_image_series.emit(acq, acq_list)
                 self.sig_finished.emit()
                 break
+
             else:
-                self.snap_image_in_series(laser_blanking)
+                if acq.get("hdr_enabled", False):
+                    # HDR capture and processing path
+                    try:
+                        raw_images = self.snap_image_hdr_series(acq, laser_blanking)
+                        if raw_images:
+                            hdr_image = self.camera_worker.combine_hdr_images(
+                                raw_images,
+                                acq["hdr_intensity_ratios"],
+                                acq.get("hdr_algorithm", "weighted_average"),
+                            )
+                            # Put HDR result directly in frame_queue
+                            self.camera_worker.frame_queue.extend([hdr_image])
+                            logger.debug(
+                                f"HDR image added to frame_queue, shape: {hdr_image.shape}"
+                            )
+                        else:
+                            logger.warning("HDR capture returned no images")
+                    except Exception as e:
+                        logger.error(f"HDR acquisition failed: {e}")
+                        raise # Fail hard to stop acquisition
+                        # # Fallback to standard capture
+                        # self.snap_image_in_series(laser_blanking)
+                else:
+                    self.snap_image_in_series(laser_blanking)
+
                 self.sig_add_images_to_image_series.emit(acq, acq_list)
                 ''' Get the current correct f_step'''
                 f_step = self.f_step_generator.__next__()
@@ -861,10 +959,10 @@ class mesoSPIM_Core(QtCore.QObject):
                     - pausing running acquisitions
                     - wait for slow hardware to catch up (e.g. slow stages)
                 '''
-#                while self.pauseflag is True:
-#                    time.sleep(0.02)
-#                    QtWidgets.QApplication.processEvents()
-                
+    #                while self.pauseflag is True:
+    #                    time.sleep(0.02)
+    #                    QtWidgets.QApplication.processEvents()
+
                 QtWidgets.QApplication.processEvents(QtCore.QEventLoop.AllEvents, 50)
                 self.image_count += 1
 

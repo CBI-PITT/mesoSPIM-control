@@ -67,6 +67,10 @@ class Acquisition(indexed.IndexedOrderedDict):
                  etl_r_offset=0,
                  etl_r_amplitude=0,
                  processing='MAX',
+                 hdr_enabled=False,
+                 hdr_exposures=3,
+                 hdr_intensity_ratios=[0.25, 1.0, 4.0],
+                 hdr_algorithm="weighted_average",
                  ):
 
         super().__init__()
@@ -93,6 +97,10 @@ class Acquisition(indexed.IndexedOrderedDict):
         self['etl_r_offset']=etl_r_offset
         self['etl_r_amplitude']=etl_r_amplitude
         self['processing']=processing
+        self["hdr_enabled"] = hdr_enabled
+        self["hdr_exposures"] = hdr_exposures
+        self["hdr_intensity_ratios"] = hdr_intensity_ratios
+        self["hdr_algorithm"] = hdr_algorithm
 
 
     def __setitem__(self, key, value):
@@ -114,7 +122,12 @@ class Acquisition(indexed.IndexedOrderedDict):
         '''
         Method to return the number of planes in the acquisition
         '''
-        return abs(round((self['z_end'] - self['z_start'])/self['z_step'])) + 1
+        base_count = abs(round((self['z_end'] - self['z_start'])/self['z_step'])) + 1
+        if self.get("hdr_enabled", False):
+            return base_count * self.get("hdr_exposures", 3)
+        else:
+            return base_count
+        return
 
     def get_acquisition_time(self, framerate):
         '''

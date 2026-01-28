@@ -240,6 +240,53 @@ class mesoSPIM_Camera(QtCore.QObject):
         framerate = (self.live_image_count + 1)/(self.end_time - self.start_time)
         logger.info(f'Camera: Finished Live Mode: Framerate: {framerate:.2f}')
 
+    def combine_hdr_images(self, images, intensity_ratios, algorithm="weighted_average"):
+        """Combine multiple exposure images into single HDR image
+
+        Args:
+            images: List of numpy arrays representing different exposures
+            intensity_ratios: List of intensity ratios used for each exposure
+            algorithm: HDR combination algorithm ('weighted_average', 'max_projection')
+
+        Returns:
+            Combined HDR image as numpy array
+        """
+        if not images or len(images) < 2:
+            logger.warning("Insufficient images for HDR combination, returning first image")
+            return images[0] if images else None
+
+        logger.debug(f"Combining {len(images)} HDR images using {algorithm} algorithm")
+
+        try:
+            if algorithm == "weighted_average":
+                # Weight by inverse of intensity to normalize exposure levels
+                weights = [1.0 / ratio for ratio in intensity_ratios]
+                weights = np.array(weights) / np.sum(weights)
+
+                # Stack and weight images
+                stacked = np.stack(images, axis=0)
+                hdr_image = np.average(stacked, axis=0, weights=weights)
+
+                # Clip to valid range and return as uint16
+                result = np.clip(hdr_image, 0, 65535).astype(np.uint16)
+                logger.debug(f"HDR weighted average completed, output shape: {result.shape}")
+                return result
+
+            elif algorithm == "max_projection":
+                # Simple maximum projection across exposures
+                stacked = np.stack(images, axis=0)
+                result = np.max(stacked, axis=0)
+                logger.debug(f"HDR max projection completed, output shape: {result.shape}")
+                return result
+
+            else:
+                logger.warning(f"Unknown HDR algorithm: {algorithm}, using first exposure")
+                return images[0]
+
+        except Exception as e:
+            logger.error(f"HDR combination failed: {e}")
+            return images[0]  # Fallback to first exposure
+
 
 class mesoSPIM_GenericCamera(QtCore.QObject):
     ''' Generic mesoSPIM camera class meant for subclassing.'''
