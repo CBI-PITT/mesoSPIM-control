@@ -332,7 +332,7 @@ class mesoSPIM_Core(QtCore.QObject):
     def stop(self):
         self.stopflag = True # This stopflag is a bit risky, needs to be updated to a more robust solution
         self.sig_stop_aquisition.emit() # send STOP signal to both Camera and ImageWriter threads
-        if self.TTL_mode_enabled_in_cfg is True:
+        if self.TTL_mode_enabled_in_cfg is True and not acq.get('hdr_enabled', False):
             self.sig_state_request.emit({'ttl_movement_enabled_during_acq': False})
         self.sig_polling_stage_position_start.emit()
         self.state['state'] = 'idle'
@@ -584,11 +584,12 @@ class mesoSPIM_Core(QtCore.QObject):
         original_intensity = self.state["intensity"]
         laser = self.state["laser"]
 
-        try:
-            self.waveformer.close_tasks() # Force Cleanup of any existing tasks
-        except:
-            logger.debug("close_tasks() failed at the top of snap_image_hdr_series()")
-            pass # Ignore if not tasks exist
+        # try:
+        #     # Prints a warning if no tasks are open
+        #     self.waveformer.close_tasks() # Force Cleanup of any existing tasks
+        # except:
+        #     logger.debug("close_tasks() failed at the top of snap_image_hdr_series()")
+        #     pass # Ignore if not tasks exist
 
         try:
             for i, intensity_ratio in enumerate(acq["hdr_intensity_ratios"]):
@@ -899,7 +900,7 @@ class mesoSPIM_Core(QtCore.QObject):
         self.sig_state_request.emit({'etl_r_offset' : acq['etl_r_offset']})
         self.f_step_generator = acq.get_focus_stepsize_generator()
 
-        if self.TTL_mode_enabled_in_cfg is True:
+        if self.TTL_mode_enabled_in_cfg is True and not acq.get('hdr_enabled', False):
             ''' The relative movement has to be carried out once with the ASI-controller '''
             self.move_relative(acq.get_delta_z_and_delta_f_dict(inverted=True))
             time.sleep(0.1)
@@ -1018,7 +1019,7 @@ class mesoSPIM_Core(QtCore.QObject):
             self.close_image_series()
             self.sig_end_image_series.emit(acq, acq_list)
 
-        if self.TTL_mode_enabled_in_cfg is True:
+        if self.TTL_mode_enabled_in_cfg is True and not acq.get('hdr_enabled', False):
             logger.debug('Attempting to set TTL mode to False')
             time.sleep(0.05) # add some buffer time for serial execution
             self.sig_state_request.emit({'ttl_movement_enabled_during_acq' : False})
