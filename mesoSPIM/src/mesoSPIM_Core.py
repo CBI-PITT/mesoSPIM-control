@@ -607,6 +607,7 @@ class mesoSPIM_Core(QtCore.QObject):
                         self.laserenabler.enable(laser)
 
                 # Capture single exposure
+                self.waveformer.write_waveforms_to_tasks()
                 self.waveformer.start_tasks()
                 self.waveformer.run_tasks()
                 self.waveformer.stop_tasks()
