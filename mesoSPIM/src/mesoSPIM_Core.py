@@ -908,10 +908,6 @@ class mesoSPIM_Core(QtCore.QObject):
             time.sleep(0.1)
             self.sig_state_request.emit({'ttl_movement_enabled_during_acq': True})
             time.sleep(0.05)
-        elif self.TTL_mode_enabled_in_cfg is True and acq.get('hdr_enabled', False):
-            # Explicitly disable TTL mode for HDR acquisitions
-            self.sig_state_request.emit({'ttl_movement_enabled_during_acq': False})
-            logger.debug('HDR acquisition detected, ensuring TTL mode is disabled')
 
         self.sig_status_message.emit('Preparing camera: Allocating memory')
         self.sig_prepare_image_series.emit(acq, acq_list) # signal to the Camera

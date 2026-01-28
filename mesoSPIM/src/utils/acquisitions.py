@@ -70,7 +70,7 @@ class Acquisition(indexed.IndexedOrderedDict):
                  hdr_enabled=False,
                  hdr_exposures=3,
                  hdr_intensity_ratios=[0.25, 1.0, 4.0],
-                 hdr_algorithm="weighted_average",
+                 hdr_algorithm="log-domain",
                  ):
 
         super().__init__()

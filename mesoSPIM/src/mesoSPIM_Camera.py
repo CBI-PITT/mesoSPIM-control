@@ -258,18 +258,29 @@ class mesoSPIM_Camera(QtCore.QObject):
         logger.debug(f"Combining {len(images)} HDR images using {algorithm} algorithm")
 
         try:
-            if algorithm == "weighted_average":
-                # Weight by inverse of intensity to normalize exposure levels
-                weights = [1.0 / ratio for ratio in intensity_ratios]
-                weights = np.array(weights) / np.sum(weights)
+            if algorithm in ("log-domain", "weighted_average"):
+                intensity_ratios = np.asarray(intensity_ratios, dtype=np.float32)
 
-                # Stack and weight images
-                stacked = np.stack(images, axis=0)
-                hdr_image = np.average(stacked, axis=0, weights=weights)
+                # Avoid division by zero / insane weights
+                eps = 1e-6
+                weights = 1.0 / np.clip(intensity_ratios, eps, None)
+                weights /= np.sum(weights)
 
-                # Clip to valid range and return as uint16
-                result = np.clip(hdr_image, 0, 65535).astype(np.uint16)
-                logger.debug(f"HDR weighted average completed, output shape: {result.shape}")
+                weighted_sum = np.zeros(images[0].shape, dtype=np.float32)
+
+                for img, w in zip(images, weights):
+                    if algorithm == "log-domain":
+                        weighted_sum += np.log1p(img.astype(np.float32)) * w
+                        weighted_sum = np.expm1(weighted_sum)
+                    else:
+                        weighted_sum += img.astype(np.float32) * w
+
+                result = np.clip(weighted_sum, 0, 65535).astype(np.uint16)
+
+                logger.debug(
+                    f"HDR weighted average completed, "
+                    f"output shape={result.shape}, weights={weights}"
+                )
                 return result
 
             elif algorithm == "max_projection":
