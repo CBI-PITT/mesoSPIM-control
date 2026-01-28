@@ -593,8 +593,12 @@ class mesoSPIM_Core(QtCore.QObject):
                 logger.debug(f"HDR exposure {i + 1}/{acq['hdr_exposures']}: intensity {hdr_intensity}%")
                 self.set_intensity(hdr_intensity, wait_until_done=True)
 
-                # Small delay for intensity stabilization
-                time.sleep(0.01)
+                # Create tasks with new intensity
+                self.waveformer.create_tasks()
+                self.waveformer.write_waveforms_to_tasks()
+
+                # # Small delay for intensity stabilization
+                # time.sleep(0.01)
 
                 # Handle laser enabling for HDR sequence
                 if laser_blanking:
@@ -607,7 +611,6 @@ class mesoSPIM_Core(QtCore.QObject):
                         self.laserenabler.enable(laser)
 
                 # Capture single exposure
-                self.waveformer.write_waveforms_to_tasks()
                 self.waveformer.start_tasks()
                 self.waveformer.run_tasks()
                 self.waveformer.stop_tasks()
