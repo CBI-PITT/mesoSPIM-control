@@ -585,6 +585,12 @@ class mesoSPIM_Core(QtCore.QObject):
         laser = self.state["laser"]
 
         try:
+            self.waveformer.close_tasks() # Force Cleanup of any existing tasks
+        except:
+            logger.debug("close_tasks() failed at the top of snap_image_hdr_series()")
+            pass # Ignore if not tasks exist
+
+        try:
             for i, intensity_ratio in enumerate(acq["hdr_intensity_ratios"]):
                 # Calculate intensity for this exposure
                 hdr_intensity = int(min(100, original_intensity * intensity_ratio))
@@ -619,6 +625,9 @@ class mesoSPIM_Core(QtCore.QObject):
                 exposure_images = self.camera_worker.camera.get_images_in_series()
                 images.extend(exposure_images)
 
+                # Clean up tasks for next iteration
+                self.waveformer.close_tasks()
+
                 # Brief pause between exposures
                 if i < len(acq["hdr_intensity_ratios"]) - 1:
                     time.sleep(0.01)
@@ -639,6 +648,7 @@ class mesoSPIM_Core(QtCore.QObject):
             self.set_intensity(original_intensity, wait_until_done=True)
             if laser_blanking:
                 self.laserenabler.disable_all()
+            self.waveformer.close_tasks()
             raise
 
     def close_image_series(self):
@@ -901,7 +911,10 @@ class mesoSPIM_Core(QtCore.QObject):
         self.sig_status_message.emit('Preparing camera: Allocating memory')
         self.sig_prepare_image_series.emit(acq, acq_list) # signal to the Camera
         self.image_writer.prepare_acquisition(acq, acq_list)
-        self.prepare_image_series()
+
+        # Only prepare_image_series for non HDR acquisitions
+        if not acq.get("hdr_enabled", False):
+            self.prepare_image_series()
         self.sig_write_metadata.emit(acq, acq_list)
 
     def run_acquisition(self, acq, acq_list):
