@@ -123,11 +123,11 @@ class Acquisition(indexed.IndexedOrderedDict):
         Method to return the number of planes in the acquisition
         '''
         base_count = abs(round((self['z_end'] - self['z_start'])/self['z_step'])) + 1
-        if self.get("hdr_enabled", False):
-            return base_count * self.get("hdr_exposures", 3)
-        else:
-            return base_count
-        return
+        # if self.get("hdr_enabled", False):
+        #     return base_count * self.get("hdr_exposures", 3)
+        # else:
+        #     return base_count
+        return base_count
 
     def get_acquisition_time(self, framerate):
         '''

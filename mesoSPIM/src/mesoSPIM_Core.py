@@ -934,6 +934,12 @@ class mesoSPIM_Core(QtCore.QObject):
                             logger.debug(
                                 f"HDR image added to frame_queue, shape: {hdr_image.shape}"
                             )
+                            if self.image_count % self.camera_worker.camera_display_temporal_subsampling == 0:
+                                self.camera_worker.frame_queue_display.append(hdr_image.T[::-1])
+                                self.camera_worker.sig_camera_frame.emit() # Update GUI display
+
+                            # Trigger image writing to process the frame_queue
+                            self.camera_worker.sig_write_images.emit(acq, acq_list)
                         else:
                             logger.warning("HDR capture returned no images")
                     except Exception as e:
@@ -943,8 +949,7 @@ class mesoSPIM_Core(QtCore.QObject):
                         # self.snap_image_in_series(laser_blanking)
                 else:
                     self.snap_image_in_series(laser_blanking)
-
-                self.sig_add_images_to_image_series.emit(acq, acq_list)
+                    self.sig_add_images_to_image_series.emit(acq, acq_list)
                 ''' Get the current correct f_step'''
                 f_step = self.f_step_generator.__next__()
                 if f_step != 0:
