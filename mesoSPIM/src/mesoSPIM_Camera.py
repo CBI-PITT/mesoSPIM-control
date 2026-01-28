@@ -261,25 +261,24 @@ class mesoSPIM_Camera(QtCore.QObject):
             if algorithm in ("log-domain", "weighted_average"):
                 intensity_ratios = np.asarray(intensity_ratios, dtype=np.float32)
 
-                # Avoid division by zero / insane weights
                 eps = 1e-6
                 weights = 1.0 / np.clip(intensity_ratios, eps, None)
                 weights /= np.sum(weights)
 
-                weighted_sum = np.zeros(images[0].shape, dtype=np.float32)
+                acc = np.zeros(images[0].shape, dtype=np.float32)
 
-                for img, w in zip(images, weights):
-                    if algorithm == "log-domain":
-                        weighted_sum += np.log1p(img.astype(np.float32)) * w
-                        weighted_sum = np.expm1(weighted_sum)
-                    else:
-                        weighted_sum += img.astype(np.float32) * w
+                if algorithm == "log-domain":
+                    for img, w in zip(images, weights):
+                        acc += w * np.log1p(img.astype(np.float32))
+                    np.expm1(acc, out=acc)  # convert back once, at the end
+                else:
+                    for img, w in zip(images, weights):
+                        acc += w * img.astype(np.float32)
 
-                result = np.clip(weighted_sum, 0, 65535).astype(np.uint16)
+                result = np.clip(acc, 0, 65535).astype(np.uint16)
 
                 logger.debug(
-                    f"HDR weighted average completed, "
-                    f"output shape={result.shape}, weights={weights}"
+                    f"HDR {algorithm} completed, output shape={result.shape}, weights={weights}"
                 )
                 return result
 
