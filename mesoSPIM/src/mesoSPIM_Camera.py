@@ -60,6 +60,7 @@ class mesoSPIM_Camera(QtCore.QObject):
             self.camera_display_temporal_subsampling = self.cfg.startup['camera_display_temporal_subsampling']
         else:
             self.camera_display_temporal_subsampling = 2
+        self._hdr_cache = {}
         logger.debug(f'Camera display temporal subsampling factor: {self.camera_display_temporal_subsampling}')
 
         ''' Wiring signals '''
@@ -240,6 +241,49 @@ class mesoSPIM_Camera(QtCore.QObject):
         framerate = (self.live_image_count + 1)/(self.end_time - self.start_time)
         logger.info(f'Camera: Finished Live Mode: Framerate: {framerate:.2f}')
 
+    def _normalize_hdr_intensity_ratios(self, intensity_ratios):
+        if isinstance(intensity_ratios, str):
+            return tuple(float(x.strip()) for x in intensity_ratios.split(','))
+        return tuple(float(x) for x in intensity_ratios)
+
+    def _get_hdr_processing_state(self, intensity_ratios, algorithm, image_shape):
+        ratios = self._normalize_hdr_intensity_ratios(intensity_ratios)
+        cache_key = (algorithm, ratios, image_shape)
+        hdr_state = self._hdr_cache.get(cache_key)
+        if hdr_state is not None:
+            return hdr_state
+
+        sensor_max = np.float32(np.iinfo(np.uint16).max)
+        eps = np.float32(1e-6)
+        pixel_values = np.arange(np.iinfo(np.uint16).max + 1, dtype=np.float32)
+        normalized_signal = pixel_values / sensor_max
+        weight_lut = normalized_signal * (1.0 - normalized_signal)
+
+        ratios_array = np.asarray(ratios, dtype=np.float32)
+        compensated_signal_luts = []
+        compensated_luts = []
+        for ratio in ratios_array:
+            safe_ratio = max(float(ratio), float(eps))
+            compensated = pixel_values / safe_ratio
+            compensated_signal_luts.append(compensated.astype(np.float32, copy=False))
+            if algorithm == "log-domain":
+                compensated = np.log1p(compensated)
+            compensated_luts.append((weight_lut * compensated).astype(np.float32, copy=False))
+
+        hdr_state = {
+            'ratios': ratios_array,
+            'sensor_max': sensor_max,
+            'eps': eps,
+            'weight_lut': weight_lut.astype(np.float32, copy=False),
+            'compensated_signal_luts': compensated_signal_luts,
+            'weighted_signal_luts': compensated_luts,
+            'acc': np.empty(image_shape, dtype=np.float32),
+            'weight_sum': np.empty(image_shape, dtype=np.float32),
+            'result': np.empty(image_shape, dtype=np.float32),
+        }
+        self._hdr_cache = {cache_key: hdr_state}
+        return hdr_state
+
     def combine_hdr_images(self, images, intensity_ratios, algorithm="weighted_average"):
         """Combine multiple exposure images into single HDR image
 
@@ -258,45 +302,27 @@ class mesoSPIM_Camera(QtCore.QObject):
         logger.debug(f"Combining {len(images)} HDR images using {algorithm} algorithm")
 
         try:
-            if isinstance(intensity_ratios, str):
-                intensity_ratios = [float(x.strip()) for x in intensity_ratios.split(',')]
-            else:
-                intensity_ratios = [float(x) for x in intensity_ratios]
+            ratios = self._normalize_hdr_intensity_ratios(intensity_ratios)
 
             if algorithm in ("log-domain", "weighted_average"):
-                intensity_ratios = np.asarray(intensity_ratios, dtype=np.float32)
+                hdr_state = self._get_hdr_processing_state(ratios, algorithm, images[0].shape)
+                acc = hdr_state['acc']
+                weight_sum = hdr_state['weight_sum']
+                result_f = hdr_state['result']
+                acc.fill(0)
+                weight_sum.fill(0)
 
-                eps = 1e-6
-                sensor_max = np.float32(np.iinfo(np.uint16).max)
-                acc = np.zeros(images[0].shape, dtype=np.float32)
-                weight_sum = np.zeros(images[0].shape, dtype=np.float32)
+                for img, weighted_signal_lut in zip(images, hdr_state['weighted_signal_luts']):
+                    np.add(acc, weighted_signal_lut[img], out=acc)
+                    np.add(weight_sum, hdr_state['weight_lut'][img], out=weight_sum)
 
-                for img, ratio in zip(images, intensity_ratios):
-                    ratio = max(float(ratio), eps)
-                    img_f = img.astype(np.float32)
-                    img_norm = img_f / ratio
-
-                    normalized_signal = img_f / sensor_max
-                    signal_weight = np.clip(normalized_signal, 0.0, 1.0)
-                    highlight_weight = np.clip(1.0 - normalized_signal, 0.0, 1.0)
-                    pixel_weight = signal_weight * highlight_weight
-
-                    if algorithm == "log-domain":
-                        acc += pixel_weight * np.log1p(img_norm)
-                    else:
-                        acc += pixel_weight * img_norm
-                    weight_sum += pixel_weight
-
-                fallback = images[0].astype(np.float32) / max(float(intensity_ratios[0]), eps)
-                valid = weight_sum > eps
-                result_f = np.empty_like(acc)
-                result_f[valid] = acc[valid] / weight_sum[valid]
+                np.divide(acc, weight_sum, out=result_f, where=weight_sum > hdr_state['eps'])
 
                 if algorithm == "log-domain":
-                    result_f[valid] = np.expm1(result_f[valid])
+                    np.expm1(result_f, out=result_f, where=weight_sum > hdr_state['eps'])
 
-                result_f[~valid] = fallback[~valid]
-                result = np.clip(result_f, 0, sensor_max).astype(np.uint16)
+                np.copyto(result_f, hdr_state['compensated_signal_luts'][0][images[0]], where=weight_sum <= hdr_state['eps'])
+                result = np.clip(result_f, 0, hdr_state['sensor_max']).astype(np.uint16)
 
                 logger.debug(
                     f"HDR {algorithm} completed, output shape={result.shape}"
@@ -304,9 +330,7 @@ class mesoSPIM_Camera(QtCore.QObject):
                 return result
 
             elif algorithm == "max_projection":
-                # Simple maximum projection across exposures
-                stacked = np.stack(images, axis=0)
-                result = np.max(stacked, axis=0)
+                result = np.maximum.reduce(images)
                 logger.debug(f"HDR max projection completed, output shape: {result.shape}")
                 return result
 
