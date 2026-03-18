@@ -293,7 +293,7 @@ class mesoSPIM_Camera(QtCore.QObject):
                 result_f[valid] = acc[valid] / weight_sum[valid]
 
                 if algorithm == "log-domain":
-                    np.expm1(result_f[valid], out=result_f[valid])
+                    result_f[valid] = np.expm1(result_f[valid])
 
                 result_f[~valid] = fallback[~valid]
                 result = np.clip(result_f, 0, sensor_max).astype(np.uint16)
