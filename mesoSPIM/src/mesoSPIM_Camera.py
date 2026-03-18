@@ -262,23 +262,39 @@ class mesoSPIM_Camera(QtCore.QObject):
                 intensity_ratios = np.asarray(intensity_ratios, dtype=np.float32)
 
                 eps = 1e-6
-                weights = 1.0 / np.clip(intensity_ratios, eps, None)
-                weights /= np.sum(weights)
-
+                sensor_max = np.float32(np.iinfo(np.uint16).max)
                 acc = np.zeros(images[0].shape, dtype=np.float32)
+                weight_sum = np.zeros(images[0].shape, dtype=np.float32)
+
+                for img, ratio in zip(images, intensity_ratios):
+                    ratio = max(float(ratio), eps)
+                    img_f = img.astype(np.float32)
+                    img_norm = img_f / ratio
+
+                    normalized_signal = img_f / sensor_max
+                    signal_weight = np.clip(normalized_signal, 0.0, 1.0)
+                    highlight_weight = np.clip(1.0 - normalized_signal, 0.0, 1.0)
+                    pixel_weight = signal_weight * highlight_weight
+
+                    if algorithm == "log-domain":
+                        acc += pixel_weight * np.log1p(img_norm)
+                    else:
+                        acc += pixel_weight * img_norm
+                    weight_sum += pixel_weight
+
+                fallback = images[0].astype(np.float32) / max(float(intensity_ratios[0]), eps)
+                valid = weight_sum > eps
+                result_f = np.empty_like(acc)
+                result_f[valid] = acc[valid] / weight_sum[valid]
 
                 if algorithm == "log-domain":
-                    for img, w in zip(images, weights):
-                        acc += w * np.log1p(img.astype(np.float32))
-                    np.expm1(acc, out=acc)  # convert back once, at the end
-                else:
-                    for img, w in zip(images, weights):
-                        acc += w * img.astype(np.float32)
+                    np.expm1(result_f[valid], out=result_f[valid])
 
-                result = np.clip(acc, 0, 65535).astype(np.uint16)
+                result_f[~valid] = fallback[~valid]
+                result = np.clip(result_f, 0, sensor_max).astype(np.uint16)
 
                 logger.debug(
-                    f"HDR {algorithm} completed, output shape={result.shape}, weights={weights}"
+                    f"HDR {algorithm} completed, output shape={result.shape}"
                 )
                 return result
 
