@@ -592,7 +592,6 @@ class mesoSPIM_Core(QtCore.QObject):
                 logger.debug("close_tasks() failed at HDR setup")
 
             self.waveformer.create_tasks()
-            self.waveformer.write_waveforms_to_tasks()
 
             for i, intensity_ratio in enumerate(intensity_ratios):
                 hdr_intensity = int(min(100, original_intensity * intensity_ratio))
@@ -601,7 +600,14 @@ class mesoSPIM_Core(QtCore.QObject):
                 )
 
                 self.waveformer.update_laser_waveform(hdr_intensity)
-                self.waveformer.write_laser_waveforms_to_tasks()
+
+                if self.waveformer.ao_cards == 2:
+                    if i == 0:
+                        self.waveformer.write_waveforms_to_tasks()
+                    else:
+                        self.waveformer.write_laser_waveforms_to_tasks()
+                else:
+                    self.waveformer.write_waveforms_to_tasks()
 
                 if laser_blanking:
                     if i == 0:
