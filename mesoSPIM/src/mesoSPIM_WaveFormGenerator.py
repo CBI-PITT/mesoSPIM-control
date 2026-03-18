@@ -36,6 +36,12 @@ class mesoSPIM_WaveFormGenerator(QtCore.QObject):
         self.cfg = parent.cfg
         self.parent = parent # mesoSPIM_Core object
         self.state = self.parent.state # mesoSPIM_StateSingleton object
+        self.master_trigger_task = None
+        self.camera_trigger_task = None
+        self.stage_trigger_task = None
+        self.galvo_etl_task = None
+        self.laser_task = None
+        self.galvo_etl_laser_task = None
         self.parent.sig_save_etl_config.connect(self.save_etl_parameters_to_csv)
         cfg_file = self.parent.read_config_parameter('ETL_cfg_file', self.cfg.startup)
         self.state['ETL_cfg_file'] = cfg_file
@@ -583,15 +589,22 @@ class mesoSPIM_WaveFormGenerator(QtCore.QObject):
         Tasks should only be closed after they are stopped.
         """
         logger.debug("Closing tasks started")
+
+        def close_task(task_name):
+            task = getattr(self, task_name, None)
+            if task is not None:
+                task.close()
+                setattr(self, task_name, None)
+
         if self.ao_cards == 2:
-            self.galvo_etl_task.close()
-            self.laser_task.close()
+            close_task('galvo_etl_task')
+            close_task('laser_task')
         else:
-            self.galvo_etl_laser_task.close()
-        self.camera_trigger_task.close()
+            close_task('galvo_etl_laser_task')
+        close_task('camera_trigger_task')
         if 'asi' in self.cfg.stage_parameters['stage_type'].lower():
-            self.stage_trigger_task.close()
-        self.master_trigger_task.close()
+            close_task('stage_trigger_task')
+        close_task('master_trigger_task')
         logger.debug("All tasks closed")
 
 

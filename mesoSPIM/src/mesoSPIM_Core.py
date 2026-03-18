@@ -584,7 +584,10 @@ class mesoSPIM_Core(QtCore.QObject):
         original_intensity = self.state["intensity"]
         laser = self.state["laser"]
         intensity_ratios = acq["hdr_intensity_ratios"]
-        intensity_ratios = [float(x) for x in intensity_ratios.split(',')]
+        if isinstance(intensity_ratios, str):
+            intensity_ratios = [float(x.strip()) for x in intensity_ratios.split(',')]
+        else:
+            intensity_ratios = [float(x) for x in intensity_ratios]
 
         try:
             try:
