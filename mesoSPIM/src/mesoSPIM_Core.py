@@ -584,6 +584,7 @@ class mesoSPIM_Core(QtCore.QObject):
         original_intensity = self.state["intensity"]
         laser = self.state["laser"]
         intensity_ratios = acq["hdr_intensity_ratios"]
+        intensity_ratios = [float(x) for x in intensity_ratios.split(',')]
 
         try:
             try:
@@ -593,7 +594,9 @@ class mesoSPIM_Core(QtCore.QObject):
 
             self.waveformer.create_tasks()
 
+            print(f'{intensity_ratios=}')
             for i, intensity_ratio in enumerate(intensity_ratios):
+                print(f'{intensity_ratio=}')
                 hdr_intensity = int(min(100, original_intensity * intensity_ratio))
                 logger.debug(
                     f"HDR exposure {i + 1}/{acq['hdr_exposures']}: intensity {hdr_intensity}%"
