@@ -258,6 +258,11 @@ class mesoSPIM_Camera(QtCore.QObject):
         logger.debug(f"Combining {len(images)} HDR images using {algorithm} algorithm")
 
         try:
+            if isinstance(intensity_ratios, str):
+                intensity_ratios = [float(x.strip()) for x in intensity_ratios.split(',')]
+            else:
+                intensity_ratios = [float(x) for x in intensity_ratios]
+
             if algorithm in ("log-domain", "weighted_average"):
                 intensity_ratios = np.asarray(intensity_ratios, dtype=np.float32)
 
