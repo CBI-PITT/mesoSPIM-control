@@ -583,74 +583,59 @@ class mesoSPIM_Core(QtCore.QObject):
         images = []
         original_intensity = self.state["intensity"]
         laser = self.state["laser"]
-
-        # try:
-        #     # Prints a warning if no tasks are open
-        #     self.waveformer.close_tasks() # Force Cleanup of any existing tasks
-        # except:
-        #     logger.debug("close_tasks() failed at the top of snap_image_hdr_series()")
-        #     pass # Ignore if not tasks exist
+        intensity_ratios = acq["hdr_intensity_ratios"]
 
         try:
-            for i, intensity_ratio in enumerate(acq["hdr_intensity_ratios"]):
-                # Calculate intensity for this exposure
+            try:
+                self.waveformer.close_tasks()
+            except Exception:
+                logger.debug("close_tasks() failed at HDR setup")
+
+            self.waveformer.create_tasks()
+            self.waveformer.write_waveforms_to_tasks()
+
+            for i, intensity_ratio in enumerate(intensity_ratios):
                 hdr_intensity = int(min(100, original_intensity * intensity_ratio))
+                logger.debug(
+                    f"HDR exposure {i + 1}/{acq['hdr_exposures']}: intensity {hdr_intensity}%"
+                )
 
-                # Set intensity for this exposure
-                logger.debug(f"HDR exposure {i + 1}/{acq['hdr_exposures']}: intensity {hdr_intensity}%")
-                self.set_intensity(hdr_intensity, wait_until_done=True)
+                self.waveformer.update_laser_waveform(hdr_intensity)
+                self.waveformer.write_laser_waveforms_to_tasks()
 
-                # Create tasks with new intensity
-                self.waveformer.create_tasks()
-                self.waveformer.write_waveforms_to_tasks()
-
-                # # Small delay for intensity stabilization
-                # time.sleep(0.01)
-
-                # Handle laser enabling for HDR sequence
                 if laser_blanking:
                     if i == 0:
                         self.laserenabler.enable(laser)
-                    elif i < len(acq["hdr_intensity_ratios"]) - 1:
-                        # Brief disable between exposures
+                    elif i < len(intensity_ratios) - 1:
                         self.laserenabler.disable_all()
                         time.sleep(0.005)
                         self.laserenabler.enable(laser)
 
-                # Capture single exposure
                 self.waveformer.start_tasks()
                 self.waveformer.run_tasks()
                 self.waveformer.stop_tasks()
 
-                # Get images from camera
                 exposure_images = self.camera_worker.camera.get_images_in_series()
                 images.extend(exposure_images)
 
-                # Clean up tasks for next iteration
-                self.waveformer.close_tasks()
-
-                # Brief pause between exposures
-                if i < len(acq["hdr_intensity_ratios"]) - 1:
+                if i < len(intensity_ratios) - 1:
                     time.sleep(0.01)
-
-            # Cleanup
-            if laser_blanking:
-                self.laserenabler.disable_all()
-
-            # Restore original intensity
-            self.set_intensity(original_intensity, wait_until_done=True)
 
             logger.debug(f"HDR capture completed: {len(images)} raw images collected")
             return images
 
         except Exception as e:
             logger.error(f"HDR capture failed: {e}")
-            # Restore original settings on error
-            self.set_intensity(original_intensity, wait_until_done=True)
+            raise
+
+        finally:
             if laser_blanking:
                 self.laserenabler.disable_all()
-            self.waveformer.close_tasks()
-            raise
+            try:
+                self.waveformer.close_tasks()
+            except Exception:
+                logger.debug("close_tasks() failed during HDR teardown")
+            self.set_intensity(original_intensity, wait_until_done=True)
 
     def close_image_series(self):
         '''Cleans up after series without waveform update'''

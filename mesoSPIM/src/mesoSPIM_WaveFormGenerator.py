@@ -5,6 +5,7 @@ import os
 import numpy as np
 import csv
 import time
+from typing import Optional
 
 import logging
 logger = logging.getLogger(__name__)
@@ -223,11 +224,14 @@ class mesoSPIM_WaveFormGenerator(QtCore.QObject):
         else:
             pass
 
-    def create_laser_waveforms(self):
+    def create_laser_waveforms(self, intensity: Optional[float] = None):
         samplerate, sweeptime = self.state.get_parameter_list(['samplerate','sweeptime'])
 
-        laser_l_delay, laser_l_pulse, max_laser_voltage, intensity = \
-        self.state.get_parameter_list(['laser_l_delay_%','laser_l_pulse_%', 'max_laser_voltage', 'intensity'])
+        laser_l_delay, laser_l_pulse, max_laser_voltage = \
+        self.state.get_parameter_list(['laser_l_delay_%','laser_l_pulse_%', 'max_laser_voltage'])
+
+        if intensity is None:
+            intensity = self.state['intensity']
 
         '''Create zero waveforms for the lasers'''
         self.zero_waveform = np.zeros((self.samples))
@@ -251,6 +255,23 @@ class mesoSPIM_WaveFormGenerator(QtCore.QObject):
         current_laser_index = sorted(list(self.cfg.laserdict.keys())).index(self.state['laser'])
         self.laser_waveform_list[current_laser_index] = self.laser_template_waveform
         self.laser_waveforms = np.stack(self.laser_waveform_list)
+
+    def update_laser_waveform(self, intensity: float):
+        """Recompute only the laser waveform for a given intensity.
+
+        Used by HDR acquisitions to avoid regenerating galvo/ETL outputs."""
+        self.create_laser_waveforms(intensity=intensity)
+
+    def write_laser_waveforms_to_tasks(self):
+        """Write the current laser waveform buffer to the appropriate AO task."""
+        if not hasattr(self, 'ao_cards'):
+            raise RuntimeError("Analog output tasks not initialized before writing laser waveforms")
+
+        if self.ao_cards == 2:
+            self.laser_task.write(self.laser_waveforms)
+        else:
+            combined = np.vstack((self.galvo_and_etl_waveforms, self.laser_waveforms))
+            self.galvo_etl_laser_task.write(combined)
 
     def bundle_galvo_and_etl_waveforms(self):
         """ Stacks the Galvo and ETL waveforms into a numpy array adequate for
